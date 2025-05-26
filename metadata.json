@@ -1,0 +1,6 @@
+{
+  "name": "Nextflow Pipeline Builder",
+  "description": "A web application to interactively build Nextflow pipeline configurations and generate the main.nf script. It leverages Gemini for suggesting process scripts.",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
