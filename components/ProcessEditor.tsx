@@ -13,6 +13,7 @@ interface ProcessEditorProps {
   process: NextflowProcess | null;
   onSave: (process: NextflowProcess) => void;
   onCancel: () => void;
+  isApiConfigured: boolean; // New prop
 }
 
 const initialProcessState: NextflowProcess = {
@@ -25,7 +26,7 @@ const initialProcessState: NextflowProcess = {
   script: '',
 };
 
-export const ProcessEditor: React.FC<ProcessEditorProps> = ({ process, onSave, onCancel }) => {
+export const ProcessEditor: React.FC<ProcessEditorProps> = ({ process, onSave, onCancel, isApiConfigured }) => {
   const [currentProc, setCurrentProc] = useState<NextflowProcess>(initialProcessState);
   const [geminiTaskDesc, setGeminiTaskDesc] = useState('');
   const [geminiSuggestion, setGeminiSuggestion] = useState('');
@@ -35,7 +36,7 @@ export const ProcessEditor: React.FC<ProcessEditorProps> = ({ process, onSave, o
   useEffect(() => {
     if (process) {
       setCurrentProc(process);
-      setSelectedTemplate(''); // Reset template selection when editing existing process
+      setSelectedTemplate(''); 
     } else {
       setCurrentProc({ ...initialProcessState, id: Date.now().toString() + Math.random().toString(36).substring(2,7) });
     }
@@ -52,7 +53,7 @@ export const ProcessEditor: React.FC<ProcessEditorProps> = ({ process, onSave, o
     const template = processTemplates.find(t => t.templateName === templateName);
     if (template) {
       setCurrentProc(prev => ({
-        ...prev, // Keep existing ID
+        ...prev,
         name: template.processNameSuggestion || prev.name,
         description: template.description || '',
         inputDeclarations: template.inputDeclarations || '',
@@ -60,19 +61,18 @@ export const ProcessEditor: React.FC<ProcessEditorProps> = ({ process, onSave, o
         directiveDeclarations: template.directiveDeclarations || '',
         script: template.script || '',
       }));
-    } else if (templateName === "") { // "None" option selected
-       // Reset to initial state if it's a new process, or keep current if editing
+    } else if (templateName === "") { 
        if (!process) {
         setCurrentProc(prev => ({ ...initialProcessState, id: prev.id }));
-       } else {
-        // If editing, ideally revert to the state before template was applied,
-        // but for simplicity, we just clear based on template structure if needed.
-        // Or, user can manually clear/edit.
        }
     }
   };
 
   const handleGeminiSuggest = async () => {
+    if (!isApiConfigured) {
+        setGeminiSuggestion("AI features are disabled. API Key not configured.");
+        return;
+    }
     if (!geminiTaskDesc.trim()) {
       alert("Please describe the task for the process.");
       return;
@@ -104,7 +104,7 @@ export const ProcessEditor: React.FC<ProcessEditorProps> = ({ process, onSave, o
   };
 
   const applySuggestionPart = (partName: 'inputDeclarations' | 'outputDeclarations' | 'directiveDeclarations' | 'script') => {
-    if (!geminiSuggestion) return;
+    if (!geminiSuggestion || geminiSuggestion.startsWith("Error:")) return;
     let extractedContent = '';
     switch(partName) {
         case 'inputDeclarations':
@@ -144,7 +144,7 @@ export const ProcessEditor: React.FC<ProcessEditorProps> = ({ process, onSave, o
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {!process && ( // Show template selector only for new processes
+      {!process && ( 
           <Select
             label="Load Process Template"
             value={selectedTemplate}
@@ -178,20 +178,30 @@ export const ProcessEditor: React.FC<ProcessEditorProps> = ({ process, onSave, o
           placeholder="e.g., Align FASTQ reads to a reference genome using BWA-MEM"
           rows={2}
           containerClassName="mb-2"
+          disabled={!isApiConfigured}
         />
-        <Button type="button" onClick={handleGeminiSuggest} disabled={isSuggesting || !geminiTaskDesc.trim()} variant="ghost" size="sm">
-          {isSuggesting ? 'Suggesting...' : 'Get AI Suggestions for Process Parts'}
+        <Button 
+            type="button" 
+            onClick={handleGeminiSuggest} 
+            disabled={isSuggesting || !geminiTaskDesc.trim() || !isApiConfigured} 
+            variant="ghost" 
+            size="sm"
+            title={!isApiConfigured ? "AI suggestions disabled: API Key not configured" : "Get AI suggestions"}
+        >
+          {isSuggesting ? 'Suggesting...' : (!isApiConfigured ? 'AI Disabled (No API Key)' : 'Get AI Suggestions for Process Parts')}
         </Button>
         {geminiSuggestion && (
           <div className="mt-4 p-3 bg-gray-800 rounded-md border border-gray-600">
             <h4 className="text-sm font-semibold text-sky-400 mb-2">Gemini Suggestion:</h4>
             <pre className="whitespace-pre-wrap text-xs text-gray-300 bg-gray-900 p-2 rounded max-h-60 overflow-y-auto">{geminiSuggestion}</pre>
-            <div className="mt-2 space-x-2 flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="secondary" onClick={() => applySuggestionPart('inputDeclarations')}>Apply Inputs</Button>
-                <Button type="button" size="sm" variant="secondary" onClick={() => applySuggestionPart('outputDeclarations')}>Apply Outputs</Button>
-                <Button type="button" size="sm" variant="secondary" onClick={() => applySuggestionPart('directiveDeclarations')}>Apply Directives</Button>
-                <Button type="button" size="sm" variant="secondary" onClick={() => applySuggestionPart('script')}>Apply Script</Button>
-            </div>
+            {!geminiSuggestion.startsWith("Error:") && isApiConfigured && (
+                <div className="mt-2 space-x-2 flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="secondary" onClick={() => applySuggestionPart('inputDeclarations')}>Apply Inputs</Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => applySuggestionPart('outputDeclarations')}>Apply Outputs</Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => applySuggestionPart('directiveDeclarations')}>Apply Directives</Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => applySuggestionPart('script')}>Apply Script</Button>
+                </div>
+            )}
           </div>
         )}
       </Card>

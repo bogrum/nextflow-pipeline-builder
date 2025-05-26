@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Pipeline, PipelineParameter, NextflowProcess, Tab, AIPipelineSuggestion, AIPipelineParameterSuggestion, AINextflowProcessSuggestion } from './types';
 import { Button } from './components/ui/Button';
 import { Input } from './components/ui/Input';
@@ -10,7 +10,7 @@ import { ParameterEditor } from './components/ParameterEditor';
 import { ProcessEditor } from './components/ProcessEditor';
 import { GeneratedCodeViewer } from './components/GeneratedCodeViewer';
 import { WorkflowVisualizer } from './components/WorkflowVisualizer';
-import { suggestNextflowWorkflow, suggestFullNextflowPipeline } from './services/geminiService';
+import { suggestNextflowWorkflow, suggestFullNextflowPipeline, isGeminiConfigured } from './services/geminiService';
 
 const initialPipeline: Pipeline = {
   name: 'MyAwesomePipeline',
@@ -22,7 +22,6 @@ const initialPipeline: Pipeline = {
   nextflowConfigContent: `// Example: \n// params.max_cpus = 16\n// params.max_memory = '64.GB'`,
 };
 
-// Helper function for parameter type validation
 const isValidParamType = (type: any): type is PipelineParameter['type'] => {
   return ['string', 'integer', 'boolean', 'path', 'file', 'directory'].includes(type);
 };
@@ -30,6 +29,11 @@ const isValidParamType = (type: any): type is PipelineParameter['type'] => {
 const App: React.FC = () => {
   const [pipeline, setPipeline] = useState<Pipeline>(initialPipeline);
   const [activeTab, setActiveTab] = useState<Tab>(Tab.SETUP);
+  const [isApiConfigured, setIsApiConfigured] = useState<boolean>(false);
+
+  useEffect(() => {
+    setIsApiConfigured(isGeminiConfigured());
+  }, []);
 
   const [isParamModalOpen, setIsParamModalOpen] = useState(false);
   const [editingParam, setEditingParam] = useState<PipelineParameter | null>(null);
@@ -37,24 +41,20 @@ const App: React.FC = () => {
   const [isProcessModalOpen, setIsProcessModalOpen] = useState(false);
   const [editingProcess, setEditingProcess] = useState<NextflowProcess | null>(null);
 
-  // State for AI Workflow Suggestion
   const [workflowGoalPrompt, setWorkflowGoalPrompt] = useState<string>('');
   const [suggestedWorkflowContent, setSuggestedWorkflowContent] = useState<string>('');
   const [isSuggestingWorkflow, setIsSuggestingWorkflow] = useState<boolean>(false);
 
-  // State for AI Pipeline Genie
   const [isGenieModalOpen, setIsGenieModalOpen] = useState<boolean>(false);
   const [geniePipelineGoal, setGeniePipelineGoal] = useState<string>('');
   const [isGeneratingFullPipeline, setIsGeneratingFullPipeline] = useState<boolean>(false);
   const [fullPipelineSuggestion, setFullPipelineSuggestion] = useState<AIPipelineSuggestion | null>(null);
   const [genieError, setGenieError] = useState<string | null>(null);
 
-
   const updatePipelineField = <K extends keyof Pipeline,>(field: K, value: Pipeline[K]) => {
     setPipeline(prev => ({ ...prev, [field]: value }));
   };
 
-  // Parameter Management
   const handleAddOrUpdateParameter = (param: PipelineParameter) => {
     setPipeline(prev => {
       const existingIndex = prev.parameters.findIndex(p => p.id === param.id);
@@ -80,7 +80,6 @@ const App: React.FC = () => {
     }
   };
 
-  // Process Management
   const handleAddOrUpdateProcess = (proc: NextflowProcess) => {
     setPipeline(prev => {
       const existingIndex = prev.processes.findIndex(p => p.id === proc.id);
@@ -106,8 +105,11 @@ const App: React.FC = () => {
     }
   };
 
-  // AI Workflow Suggestion Handler
   const handleSuggestWorkflow = async () => {
+    if (!isApiConfigured) {
+        setSuggestedWorkflowContent("AI features are disabled. API Key not configured.");
+        return;
+    }
     if (!workflowGoalPrompt.trim()) {
       alert("Please describe your pipeline goal for AI suggestion.");
       return;
@@ -132,8 +134,11 @@ const App: React.FC = () => {
     }
   };
 
-  // AI Pipeline Genie Handlers
   const handleOpenGenieModal = () => {
+    if (!isApiConfigured) {
+        alert("AI Pipeline Genie is disabled because the API Key is not configured.");
+        return;
+    }
     setGeniePipelineGoal('');
     setFullPipelineSuggestion(null);
     setGenieError(null);
@@ -141,6 +146,10 @@ const App: React.FC = () => {
   };
 
   const handleGenerateFullPipeline = async () => {
+    if (!isApiConfigured) {
+        setGenieError("AI features are disabled. API Key not configured.");
+        return;
+    }
     if (!geniePipelineGoal.trim()) {
       alert("Please describe your overall pipeline goal.");
       return;
@@ -150,7 +159,7 @@ const App: React.FC = () => {
     setGenieError(null);
     try {
       const suggestion = await suggestFullNextflowPipeline(geniePipelineGoal);
-      if (typeof suggestion === 'string') { // Error message returned
+      if (typeof suggestion === 'string') {
         setGenieError(suggestion);
       } else {
         setFullPipelineSuggestion(suggestion);
@@ -165,15 +174,11 @@ const App: React.FC = () => {
 
   const applyFullPipelineSuggestion = () => {
     if (!fullPipelineSuggestion) {
-      console.warn("[AI GENIE] applyFullPipelineSuggestion called without fullPipelineSuggestion. Button should be disabled or hidden.");
       setGenieError("Cannot apply: No suggestion data available. Please generate a suggestion first.");
       return;
     }
-
-    console.log("[AI GENIE] 'Apply This Suggestion' button clicked. Proceeding to apply suggestion as browser confirm dialog is bypassed for preview environments.");
     
     try {
-        console.log("Applying full pipeline suggestion: ", fullPipelineSuggestion);
         const newParams: PipelineParameter[] = (fullPipelineSuggestion.parameters || [])
           .filter((p): p is AIPipelineParameterSuggestion => p && typeof p === 'object') 
           .map((p, index) => ({ 
@@ -183,7 +188,6 @@ const App: React.FC = () => {
             description: String(p.description || ''),
             type: isValidParamType(p.type) ? p.type : 'string',
           }));
-        console.log("Mapped newParams: ", newParams);
 
         const newProcs: NextflowProcess[] = (fullPipelineSuggestion.processes || [])
           .filter((p): p is AINextflowProcessSuggestion => p && typeof p === 'object') 
@@ -196,14 +200,12 @@ const App: React.FC = () => {
             directiveDeclarations: String(p.directiveDeclarations || ''),
             script: String(p.script || ''),
           }));
-        console.log("Mapped newProcs: ", newProcs);
         
         const newPipelineName = String(fullPipelineSuggestion.pipelineName || pipeline.name);
         const newPipelineDescription = String(fullPipelineSuggestion.pipelineDescription || pipeline.description);
         const newPipelineVersion = String(fullPipelineSuggestion.pipelineVersion || pipeline.version);
         const newWorkflowContent = String(fullPipelineSuggestion.workflowContent || pipeline.workflowContent);
 
-        console.log("Preparing to call setPipeline");
         setPipeline(prev => ({
           ...prev,
           name: newPipelineName,
@@ -213,19 +215,11 @@ const App: React.FC = () => {
           processes: newProcs,
           workflowContent: newWorkflowContent,
         }));
-        console.log("setPipeline call completed in terms of scheduling.");
         
         setIsGenieModalOpen(false);
-        console.log("setIsGenieModalOpen(false) called.");
-        
         setFullPipelineSuggestion(null);
-        console.log("setFullPipelineSuggestion(null) called.");
-
         setGeniePipelineGoal('');
-        console.log("setGeniePipelineGoal('') called.");
-
         setActiveTab(Tab.PREVIEW);
-        console.log("setActiveTab(Tab.PREVIEW) called.");
 
       } catch (error) {
         console.error("Critical Error applying full pipeline suggestion:", error);
@@ -244,7 +238,6 @@ const App: React.FC = () => {
         setGenieError(`Failed to apply suggestion: ${detailedErrorMessage || 'Unknown issue'}. Please check the browser console for details and report the full error.`);
       }
   };
-
 
   const TabButton: React.FC<{tabName: Tab, currentTab: Tab, setTab: (tab: Tab) => void, children: React.ReactNode}> = ({tabName, currentTab, setTab, children}) => (
     <Button
@@ -356,12 +349,18 @@ const App: React.FC = () => {
                 label="Describe your overall pipeline goal (for workflow block only):"
                 value={workflowGoalPrompt}
                 onChange={(e) => setWorkflowGoalPrompt(e.target.value)}
-                placeholder="e.g., Perform variant calling from FASTQ files, including QC, alignment, and SNP identification. (Assumes processes are already defined)"
+                placeholder="e.g., Perform variant calling from FASTQ files, including QC, alignment, and SNP identification."
                 rows={3}
                 containerClassName="mb-2"
+                disabled={!isApiConfigured}
               />
-              <Button onClick={handleSuggestWorkflow} disabled={isSuggestingWorkflow || !workflowGoalPrompt.trim()} variant="ghost" size="sm">
-                {isSuggestingWorkflow ? 'Thinking...' : 'Suggest Workflow Block with AI'}
+              <Button 
+                onClick={handleSuggestWorkflow} 
+                disabled={isSuggestingWorkflow || !workflowGoalPrompt.trim() || !isApiConfigured} 
+                variant="ghost" 
+                size="sm"
+              >
+                {isSuggestingWorkflow ? 'Thinking...' : (!isApiConfigured ? 'AI Disabled (No API Key)' : 'Suggest Workflow Block with AI')}
               </Button>
               {suggestedWorkflowContent && (
                 <div className="mt-4 p-3 bg-gray-800 rounded-md border border-gray-600">
@@ -369,7 +368,7 @@ const App: React.FC = () => {
                   <pre className="whitespace-pre-wrap text-xs text-gray-300 bg-gray-900 p-2 rounded max-h-60 overflow-y-auto">
                     {suggestedWorkflowContent}
                   </pre>
-                  {!suggestedWorkflowContent.startsWith("Error:") && (
+                  {!suggestedWorkflowContent.startsWith("Error:") && isApiConfigured && (
                     <Button onClick={applyWorkflowSuggestion} variant="primary" size="sm" className="mt-2">
                       Apply Suggestion to Workflow Block
                     </Button>
@@ -421,6 +420,13 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 p-4 sm:p-8">
+      {!isApiConfigured && (
+        <div className="bg-orange-700 border border-orange-600 text-white px-4 py-3 rounded-md relative mb-6 shadow-lg" role="alert">
+          <strong className="font-bold">AI Features Disabled:</strong>
+          <span className="block sm:inline ml-2">The Gemini API Key is not configured for this deployment.</span>
+          <p className="text-sm mt-1">To enable AI-powered suggestions and pipeline generation, the <code>API_KEY</code> environment variable must be set during the build/deployment process.</p>
+        </div>
+      )}
       <header className="mb-8">
         <div className="flex flex-col sm:flex-row justify-between items-center mb-4">
             <div className="text-center sm:text-left">
@@ -431,10 +437,12 @@ const App: React.FC = () => {
                 onClick={handleOpenGenieModal} 
                 variant="ghost" 
                 size="lg" 
-                className="mt-4 sm:mt-0 border-sky-500 hover:bg-sky-700 hover:text-white"
+                className={`mt-4 sm:mt-0 border-sky-500 ${isApiConfigured ? 'hover:bg-sky-700 hover:text-white' : 'opacity-50 cursor-not-allowed'}`}
                 aria-label="Open AI Pipeline Genie"
+                disabled={!isApiConfigured}
+                title={!isApiConfigured ? "AI Pipeline Genie is disabled: API Key not configured" : "Use AI to generate a full pipeline structure"}
             >
-                ✨ AI Pipeline Genie
+                ✨ {!isApiConfigured ? "AI Genie (Disabled)" : "AI Pipeline Genie"}
             </Button>
         </div>
       </header>
@@ -477,11 +485,12 @@ const App: React.FC = () => {
             process={editingProcess}
             onSave={handleAddOrUpdateProcess}
             onCancel={() => { setIsProcessModalOpen(false); setEditingProcess(null); }}
+            isApiConfigured={isApiConfigured}
           />
         </Modal>
       )}
 
-      {isGenieModalOpen && (
+      {isGenieModalOpen && isApiConfigured && (
         <Modal
             isOpen={isGenieModalOpen}
             onClose={() => setIsGenieModalOpen(false)}
@@ -489,7 +498,6 @@ const App: React.FC = () => {
             size="2xl" 
         >
             <div className="space-y-4">
-                {/* Prominent error display area */}
                 {genieError && (
                     <div className="p-4 mb-4 text-sm text-red-200 bg-red-800 border border-red-700 rounded-md shadow-lg" role="alert">
                         <strong className="font-bold">An error occurred:</strong>
@@ -503,18 +511,18 @@ const App: React.FC = () => {
                     onChange={(e) => setGeniePipelineGoal(e.target.value)}
                     placeholder="e.g., 'RNA-seq analysis from FASTQ to differential gene expression', or 'Assemble a metagenome from short reads and perform functional annotation'"
                     rows={4}
+                    disabled={!isApiConfigured}
                 />
                 <Button
                     onClick={handleGenerateFullPipeline}
-                    disabled={isGeneratingFullPipeline || !geniePipelineGoal.trim()}
+                    disabled={isGeneratingFullPipeline || !geniePipelineGoal.trim() || !isApiConfigured}
                     variant="primary"
                     className="w-full"
                 >
-                    {isGeneratingFullPipeline ? 'Generating Pipeline...' : 'Ask AI to Generate Pipeline'}
+                    {isGeneratingFullPipeline ? 'Generating Pipeline...' : (!isApiConfigured ? 'AI Disabled' : 'Ask AI to Generate Pipeline')}
                 </Button>
 
-                {/* Conditional display of suggestion, now separate from the main error display */}
-                {fullPipelineSuggestion && !genieError && ( // Only show suggestion if no error and suggestion exists
+                {fullPipelineSuggestion && !genieError && ( 
                     <Card title="AI Suggested Pipeline Structure" className="bg-gray-700/70 max-h-[50vh] overflow-y-auto">
                         <h4 className="text-md font-semibold text-sky-400 mb-1">Name: <span className="font-normal text-gray-200">{fullPipelineSuggestion.pipelineName}</span></h4>
                         <p className="text-sm text-gray-300 mb-1"><strong className="text-gray-200">Description:</strong> {fullPipelineSuggestion.pipelineDescription}</p>
@@ -539,8 +547,7 @@ const App: React.FC = () => {
                             </pre>
                         </details>
                         
-                        {/* Removed the specific browser confirmation reminder as it's no longer applicable with window.confirm removed */}
-                        <Button onClick={applyFullPipelineSuggestion} variant="primary" className="w-full mt-3" disabled={!fullPipelineSuggestion}>
+                        <Button onClick={applyFullPipelineSuggestion} variant="primary" className="w-full mt-3" disabled={!fullPipelineSuggestion || !isApiConfigured}>
                             Apply This Suggestion
                         </Button>
                         <p className="text-xs text-gray-400 mt-2 text-center">
@@ -551,7 +558,6 @@ const App: React.FC = () => {
             </div>
         </Modal>
       )}
-
 
       <footer className="mt-12 text-center text-sm text-gray-500">
         <p>&copy; {new Date().getFullYear()} Nextflow Pipeline Builder. Powered by AI.</p>

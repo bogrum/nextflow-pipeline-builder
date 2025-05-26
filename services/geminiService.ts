@@ -3,17 +3,28 @@ import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { AIPipelineSuggestion } from "../types";
 
 const API_KEY = process.env.API_KEY;
+let ai: GoogleGenAI | null = null;
 
-if (!API_KEY) {
-  console.error("API_KEY environment variable not set.");
-  // Potentially throw an error or have a fallback, but instructions say assume it's set.
+const API_UNAVAILABLE_ERROR = "Error: Gemini API Key not configured or failed to initialize. AI features are disabled. The API_KEY environment variable must be set during deployment to enable AI features.";
+
+if (API_KEY) {
+  try {
+    ai = new GoogleGenAI({ apiKey: API_KEY });
+  } catch (error) {
+    console.error("Failed to initialize GoogleGenAI with the provided API_KEY:", error);
+    // ai remains null, API_UNAVAILABLE_ERROR will be used by functions
+  }
+} else {
+  // This warning is for the developer console during development/deployment
+  console.warn("API_KEY environment variable not set. Gemini AI features will be disabled.");
 }
 
-const ai = new GoogleGenAI({ apiKey: API_KEY! });
-const modelName = 'gemini-2.5-flash-preview-04-17';
+export const isGeminiConfigured = (): boolean => {
+  return !!ai;
+};
 
 export const suggestNextflowProcessParts = async (taskDescription: string): Promise<string> => {
-  if (!API_KEY) return "Error: API_KEY not configured.";
+  if (!ai) return API_UNAVAILABLE_ERROR;
 
   const prompt = `You are an expert assistant for Nextflow pipeline development.
 A user is creating a Nextflow process to perform the following task: "${taskDescription}".
@@ -50,7 +61,7 @@ If the task is unclear, provide a general template.
 
   try {
     const response: GenerateContentResponse = await ai.models.generateContent({
-      model: modelName,
+      model: 'gemini-2.5-flash-preview-04-17',
       contents: prompt,
       config: {
         temperature: 0.5, 
@@ -67,7 +78,7 @@ If the task is unclear, provide a general template.
 };
 
 export const suggestNextflowWorkflow = async (pipelineGoal: string, processNames: string[]): Promise<string> => {
-  if (!API_KEY) return "Error: API_KEY not configured.";
+  if (!ai) return API_UNAVAILABLE_ERROR;
 
   const prompt = `You are an expert Nextflow pipeline development assistant.
 A user wants to create a workflow for the following goal: "${pipelineGoal}".
@@ -86,7 +97,7 @@ Only provide the content for the workflow block. Do not include the "workflow { 
 
   try {
     const response: GenerateContentResponse = await ai.models.generateContent({
-      model: modelName,
+      model: 'gemini-2.5-flash-preview-04-17',
       contents: prompt,
       config: {
         temperature: 0.6, 
@@ -103,7 +114,7 @@ Only provide the content for the workflow block. Do not include the "workflow { 
 };
 
 export const suggestFullNextflowPipeline = async (pipelineGoal: string): Promise<AIPipelineSuggestion | string> => {
-  if (!API_KEY) return "Error: API_KEY not configured.";
+  if (!ai) return API_UNAVAILABLE_ERROR;
 
   const prompt = `You are an expert Nextflow pipeline development assistant.
 A user wants to create a complete Nextflow pipeline for the following goal: "${pipelineGoal}".
@@ -165,11 +176,10 @@ Based on the goal: "${pipelineGoal}"
 Generate ONLY the single, valid JSON object.
 `;
 
-  // This variable needs to be accessible in the catch block if parsing fails.
   let jsonStr = ''; 
   try {
     const response: GenerateContentResponse = await ai.models.generateContent({
-      model: modelName,
+      model: 'gemini-2.5-flash-preview-04-17',
       contents: prompt,
       config: {
         temperature: 0.7, 
